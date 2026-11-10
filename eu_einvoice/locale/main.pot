@@ -835,3 +835,6 @@ msgstr ""
 #: eu_einvoice/european_e_invoice/custom/sales_invoice.py:861
 msgid "{0}: Only one mode of payment will be considered in the e-invoice."
 msgstr ""
+
+msgid "Payment of {0} {1}, due on {2}."
+msgstr ""

@@ -552,16 +552,29 @@ class EInvoiceGenerator:
 		self.doc.trade.delivery.event.occurrence = getdate(delivery_date)
 
 	def _add_payment_terms(self):
+		# EN16931 (also used by XRechnung) and BASIC have one terms block.
+		# Instalment amounts are available as structured data only in EXTENDED.
+		combined = PaymentTerms() if self.profile != EInvoiceProfile.EXTENDED else None
+		if combined is not None and self.invoice.get("due_date"):
+			combined.due = getdate(self.invoice.due_date)
+		descriptions = []
 		for ps in self.invoice.payment_schedule:
-			payment_terms = PaymentTerms()
+			payment_terms = combined if combined is not None else PaymentTerms()
 			ps_description = ps.description or ""
-			if ps.due_date:
+			if ps.due_date and (combined is None or len(self.invoice.payment_schedule) == 1):
 				payment_terms.due = getdate(ps.due_date)
 
 			if len(self.invoice.payment_schedule) > 1:
-				payment_terms.partial_amount.add(
-					(ps.payment_amount, None)
-				)  # [CII-DT-031] - currencyID should not be present
+				if combined is None:
+					payment_terms.partial_amount.add((ps.payment_amount, None))
+				else:
+					instalment = _("Payment of {0} {1}, due on {2}.").format(
+						f"{ps.payment_amount:.2f}", self.invoice.currency, str(ps.due_date or "-")
+					)
+					ps_description = "\n".join(filter(None, [ps_description, instalment]))
+
+			if self.profile == EInvoiceProfile.XRECHNUNG:
+				ps_description = ps_description.replace("#", "//")
 
 			if ps.discount and ps.discount_date:
 				if self.profile == EInvoiceProfile.EXTENDED:
@@ -588,10 +601,18 @@ class EInvoiceGenerator:
 							ps_description += get_skonto_line(discount_days, ps.discount, basis_amount)
 							ps_description += "\n"
 
-			if ps_description:
-				payment_terms.description = ps_description
-
-			self.doc.trade.settlement.terms.add(payment_terms)
+			if combined is not None:
+				if ps_description:
+					descriptions.append(ps_description.rstrip("\n"))
+			else:
+				if ps_description:
+					payment_terms.description = ps_description
+				self.doc.trade.settlement.terms.add(payment_terms)
+		if combined is not None:
+			if descriptions:
+				combined.description = "\n".join(descriptions) + "\n"
+			if descriptions or self.invoice.payment_schedule or self.invoice.get("due_date"):
+				self.doc.trade.settlement.terms.add(combined)
 
 	def _add_payment_means(self):
 		# BG-16 may repeat, but we emit a single payment instruction

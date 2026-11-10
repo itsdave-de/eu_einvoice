@@ -840,3 +840,6 @@ msgstr "{0} Zeile #{1}: Typ '{2}' wird in der E-Rechnung nicht unterstützt"
 #: eu_einvoice/european_e_invoice/custom/sales_invoice.py:861
 msgid "{0}: Only one mode of payment will be considered in the e-invoice."
 msgstr "{0}: Nur eine Zahlungsart wird in der E-Rechnung berücksichtigt."
+
+msgid "Payment of {0} {1}, due on {2}."
+msgstr "Zahlung von {0} {1}, fällig am {2}."
