@@ -113,3 +113,71 @@ class TestSkontoTerms(IntegrationTestCase):
 
 	def test_no_skonto_line_without_discount(self):
 		self.assertNotIn("#SKONTO#", self._get_xml())
+
+
+EINVOICE = "eu_einvoice.european_e_invoice.einvoice"
+
+
+def _fake_attach_print(doctype, name, *args, **kwargs):
+	return {"fname": f"{name}.pdf", "fcontent": b"%PDF-plain"}
+
+
+class TestAttachPrint(IntegrationTestCase):
+	"""ZUGFeRD XML in PDFs rendered by frappe.attach_print, e.g. email attachments (#274, #329)."""
+
+	def _patched(self, after_print_hook=False, **attach_xml):
+		from contextlib import ExitStack
+
+		from frappe.utils import print_utils
+
+		stack = ExitStack()
+		stack.enter_context(patch.object(print_utils, "attach_print", _fake_attach_print))
+		stack.enter_context(patch.object(frappe, "attach_print", _fake_attach_print))
+		stack.enter_context(patch(f"{EINVOICE}.has_after_print_hook", return_value=after_print_hook))
+		mock = stack.enter_context(patch(f"{EINVOICE}.attach_xml_to_pdf", **attach_xml))
+		return stack, mock
+
+	def test_embeds_xml_for_invoices_only(self):
+		from eu_einvoice.european_e_invoice.einvoice import patch_attach_print
+
+		stack, attach_xml = self._patched(return_value=b"%PDF-zugferd")
+		with stack:
+			patch_attach_print()
+			patch_attach_print()
+			self.assertTrue(frappe.attach_print._eu_einvoice)
+			self.assertIs(frappe.attach_print.__wrapped__, _fake_attach_print)
+			invoice = frappe.attach_print(doctype="Sales Invoice", name="ACC-SINV-TEST-1", print_format="Standard")
+			other = frappe.attach_print("Quotation", "SAL-QTN-TEST-1")
+
+		self.assertEqual(invoice["fcontent"], b"%PDF-zugferd")
+		self.assertEqual(other["fcontent"], b"%PDF-plain")
+		attach_xml.assert_called_once_with("ACC-SINV-TEST-1", b"%PDF-plain", "Sales Invoice")
+
+	def test_keeps_pdf_if_xml_fails(self):
+		from eu_einvoice.european_e_invoice.einvoice import patch_attach_print
+
+		stack, _ = self._patched(side_effect=Exception("broken"))
+		with stack, patch("frappe.log_error"):
+			patch_attach_print()
+			invoice = frappe.attach_print("Sales Invoice", "ACC-SINV-TEST-1")
+
+		self.assertEqual(invoice["fcontent"], b"%PDF-plain")
+
+	def test_skips_sites_without_app(self):
+		from eu_einvoice.european_e_invoice.einvoice import patch_attach_print
+
+		stack, attach_xml = self._patched(return_value=b"%PDF-zugferd")
+		with stack, patch("frappe.get_installed_apps", return_value=["frappe", "erpnext"]):
+			patch_attach_print()
+			invoice = frappe.attach_print("Sales Invoice", "ACC-SINV-TEST-1")
+
+		attach_xml.assert_not_called()
+		self.assertEqual(invoice["fcontent"], b"%PDF-plain")
+
+	def test_steps_aside_with_after_print_hook(self):
+		from eu_einvoice.european_e_invoice.einvoice import patch_attach_print
+
+		stack, _ = self._patched(after_print_hook=True)
+		with stack:
+			patch_attach_print()
+			self.assertIs(frappe.attach_print, _fake_attach_print)

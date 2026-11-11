@@ -206,12 +206,12 @@ override_whitelisted_methods = {
 
 # Request Events
 # ----------------
-# before_request = ["eu_einvoice.utils.before_request"]
+before_request = ["eu_einvoice.european_e_invoice.einvoice.patch_attach_print"]
 # after_request = ["eu_einvoice.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["eu_einvoice.utils.before_job"]
+before_job = ["eu_einvoice.european_e_invoice.einvoice.patch_attach_print"]
 # after_job = ["eu_einvoice.utils.after_job"]
 
 # User Data Protection

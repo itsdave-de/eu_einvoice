@@ -997,6 +997,59 @@ def download_pdf(
 			frappe.local.response.filecontent = zugferd_pdf
 
 
+def has_after_print_hook() -> bool:
+	"""Whether Frappe post-processes every generated PDF via the `after_print` event (frappe/frappe#42740)."""
+	from frappe.utils import print_utils
+
+	return hasattr(print_utils, "postprocess_pdf")
+
+
+def patch_attach_print():
+	"""Embed the e-invoice XML into PDFs created by `frappe.attach_print`.
+
+	The Email dialog, the email queue, auto repeat and workflow actions render their PDF via
+	`attach_print`, which the `download_pdf` override does not cover (alyf-de/eu_einvoice#274,
+	#329). Runs as `before_request` and `before_job` hook, so it wraps once per process. Steps
+	aside as soon as Frappe provides the `after_print` event.
+	"""
+	if has_after_print_hook():
+		return
+
+	from frappe.utils import print_utils
+
+	if getattr(print_utils.attach_print, "_eu_einvoice", False):
+		return
+
+	original_attach_print = print_utils.attach_print
+
+	def attach_print(doctype, name, *args, **kwargs):
+		attachment = original_attach_print(doctype, name, *args, **kwargs)
+		if (
+			isinstance(attachment, dict)
+			and cstr(attachment.get("fname")).lower().endswith(".pdf")
+			# the wrapper is process-wide; skip sites without this app
+			and "eu_einvoice" in frappe.get_installed_apps()
+			and get_generator_class(doctype)
+		):
+			attachment["fcontent"] = _attach_xml_or_keep_pdf(name, attachment["fcontent"], doctype)
+
+		return attachment
+
+	attach_print._eu_einvoice = True
+	attach_print.__wrapped__ = original_attach_print
+	print_utils.attach_print = attach_print
+	frappe.attach_print = attach_print
+
+
+def _attach_xml_or_keep_pdf(name: str, pdf_data: bytes, doctype: str) -> bytes:
+	"""Return the ZUGFeRD PDF, or the original PDF if creating or attaching the XML fails."""
+	try:
+		return attach_xml_to_pdf(name, pdf_data, doctype) or pdf_data
+	except Exception:
+		frappe.log_error(f"Error attaching XML to PDF for {doctype} {name}")
+		return pdf_data
+
+
 def _get_icc_profile_path() -> str:
 	"""Get the path to the ICC profile used by Ghostscript."""
 	import re
