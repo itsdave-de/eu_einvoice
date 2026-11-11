@@ -322,9 +322,10 @@ class EInvoiceGenerator:
 		if self.profile == EInvoiceProfile.BASIC:
 			return
 
+		# BT-41/BT-56 is one contact point: a person or a department, not both (CII-SR-465/466, an error in XRechnung)
 		if party.person_name:
 			target.contact.person_name = party.person_name
-		if party.department:
+		elif party.department:
 			target.contact.department_name = party.department
 		if party.email:
 			target.contact.email.address = party.email

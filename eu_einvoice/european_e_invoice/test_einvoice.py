@@ -181,3 +181,27 @@ class TestAttachPrint(IntegrationTestCase):
 		with stack:
 			patch_attach_print()
 			self.assertIs(frappe.attach_print, _fake_attach_print)
+
+
+class TestContactPoint(IntegrationTestCase):
+	"""BT-41/BT-56 holds a person or a department, never both (CII-SR-465/466, an error in XRechnung)."""
+
+	def _contact(self, **party):
+		from drafthorse.models.document import Document
+
+		from eu_einvoice.european_e_invoice.einvoice import EInvoiceGenerator, TradeParty
+
+		generator = object.__new__(EInvoiceGenerator)
+		generator.profile = EInvoiceProfile.XRECHNUNG
+		doc = Document()
+		generator._write_party(doc.trade.agreement.seller, TradeParty(name="Test GmbH", **party))
+		return doc.trade.agreement.seller.contact
+
+	def test_person_wins_over_department(self):
+		contact = self._contact(person_name="Erika Muster", department="Buchhaltung")
+		self.assertEqual(contact.person_name._text, "Erika Muster")
+		self.assertFalse(contact.department_name._text)
+
+	def test_department_without_person(self):
+		contact = self._contact(department="Buchhaltung")
+		self.assertEqual(contact.department_name._text, "Buchhaltung")
